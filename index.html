@@ -399,7 +399,7 @@ footer{margin-top:auto;padding:1rem 1.5rem;text-align:center;font-size:0.72rem;c
         <div class="fotos-grid" id="fotos-preview"></div>
         <div class="upload-progress" id="upload-progress"><div class="upload-progress-bar" id="upload-progress-bar"></div></div>
         <input type="file" id="foto-input" accept="image/*" multiple style="display:none;" onchange="subirFotos(event)"/>
-        <div style="margin-top:0.5rem;font-size:0.75rem;color:var(--tm);">Máx. 5 fotos · JPG, PNG · hasta 5MB cada una</div>
+        <div style="margin-top:0.5rem;font-size:0.75rem;color:var(--tm);">Máx. 5 fotos · Se comprimen automáticamente a 1200px · 60%</div>
       </div>
 
       <!-- GPS y mapa -->
@@ -790,16 +790,16 @@ async function subirFotos(event){
   const progress=document.getElementById('upload-progress');
   const bar=document.getElementById('upload-progress-bar');
   progress.style.display='block';
+  bar.style.width='5%';
   for(let i=0;i<files.length;i++){
     const file=files[i];
-    if(file.size>5*1024*1024){alert(`${file.name} supera los 5MB`);continue;}
-    bar.style.width=((i/files.length)*80)+'%';
-    // Comprimir si es necesario
-    const compressed=await comprimirImagen(file,1200);
-    const ext=file.name.split('.').pop().toLowerCase()||'jpg';
-    const path=`${currentFincaId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-    const{data,error}=await sb.storage.from('notas-fotos').upload(path,compressed,{contentType:file.type,upsert:false});
-    if(error){console.error('Upload error:',error);continue;}
+    bar.style.width=((i/files.length)*60+10)+'%';
+    // Comprimir siempre primero — sin límite de tamaño previo
+    const compressed=await comprimirImagen(file,1200,0.60);
+    bar.style.width=((i/files.length)*80+15)+'%';
+    const path=`${currentFincaId}/${Date.now()}-${Math.random().toString(36).slice(2)}.jpg`;
+    const{data,error}=await sb.storage.from('notas-fotos').upload(path,compressed,{contentType:'image/jpeg',upsert:false});
+    if(error){console.error('Upload error:',error);alert('Error al subir foto: '+error.message);continue;}
     const{data:{publicUrl}}=sb.storage.from('notas-fotos').getPublicUrl(path);
     fotosActuales.push(publicUrl);
     bar.style.width=((i+1)/files.length*100)+'%';
@@ -810,7 +810,7 @@ async function subirFotos(event){
   renderFotasModal();
 }
 
-function comprimirImagen(file,maxWidth=1200){
+function comprimirImagen(file,maxWidth=1200,calidad=0.60){
   return new Promise(resolve=>{
     const img=new Image();
     const url=URL.createObjectURL(file);
@@ -818,10 +818,13 @@ function comprimirImagen(file,maxWidth=1200){
       URL.revokeObjectURL(url);
       const canvas=document.createElement('canvas');
       let{width,height}=img;
+      // Reducir si supera maxWidth
       if(width>maxWidth){height=Math.round(height*maxWidth/width);width=maxWidth;}
+      // También reducir si es vertical y supera maxWidth en alto
+      if(height>maxWidth){width=Math.round(width*maxWidth/height);height=maxWidth;}
       canvas.width=width;canvas.height=height;
       canvas.getContext('2d').drawImage(img,0,0,width,height);
-      canvas.toBlob(blob=>resolve(blob||file),'image/jpeg',0.82);
+      canvas.toBlob(blob=>resolve(blob||file),'image/jpeg',calidad);
     };
     img.onerror=()=>resolve(file);
     img.src=url;
